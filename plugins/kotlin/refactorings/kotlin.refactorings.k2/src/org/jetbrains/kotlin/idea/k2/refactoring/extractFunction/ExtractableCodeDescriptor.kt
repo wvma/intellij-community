@@ -12,13 +12,7 @@ import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnn
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KaDeclarationRendererForSource
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.utils.printer.PrettyPrinter
-import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.ControlFlow
-import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.DuplicateInfo
-import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.ExtractableCodeDescriptorWithConflictsResult
-import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.IExtractableCodeDescriptor
-import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.IExtractableCodeDescriptorWithConflicts
-import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.IReplacement
-import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.TypeParameter
+import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.*
 import org.jetbrains.kotlin.lexer.KtKeywordToken
 import org.jetbrains.kotlin.lexer.KtModifierKeywordToken
 import org.jetbrains.kotlin.name.ClassId
@@ -28,6 +22,21 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 
+/**
+ * A class keeping information for the extracted declaration.
+ *
+ * To set up annotations to be added to the extracted declaration, you have two options:
+ *  1. Set [renderedAnnotations]. In this case, [annotationsText] that will be finally added to the declaration
+ *  will be a simple joined string of [renderedAnnotations].
+ *  For example, when creating an extracted function `@Anno1(X, Y) @Anno2(Z, W, V) fun foo() {..}`, we can set
+ *  `[renderedAnnotations] = listOf("@Anno1(X, Y)", "@Anno2(Z, W, V)")`.
+ *
+ *  2. Set [annotationClassIds]. In this case, [annotationsText] will be the same text of annotations that
+ *  the container PSI from [extractionData] has whose class ids must exist in [annotationClassIds].
+ *  For example, when creating `@Anno1(X, Y) @Anno2(Z, W, V) fun foo() {..}` extracted from
+ *  `@Anno1(X, Y) @Anno2(Z, W, V) fun bar() {..}`, we can set
+ *  `[annotationClassIds] = listOf("com.packageForAnno1.Anno1", "com.packageForAnno2.Anno2")`.
+ */
 data class ExtractableCodeDescriptor(
     val context: KtElement,
     override val extractionData: ExtractionData,
@@ -41,7 +50,8 @@ data class ExtractableCodeDescriptor(
     override val returnType: KaType,
     override val modifiers: List<KtKeywordToken> = emptyList(),
     override val optInMarkers: List<FqName> = emptyList(),
-    val annotationClassIds: Set<ClassId> = emptySet()
+    val annotationClassIds: Set<ClassId> = emptySet(),
+    val renderedAnnotations: Set<String> = emptySet(),
 ) : IExtractableCodeDescriptor<KaType> {
     override val name: String get() = suggestedNames.firstOrNull() ?: ""
 
@@ -54,6 +64,9 @@ data class ExtractableCodeDescriptor(
     @OptIn(KaExperimentalApi::class)
     override val annotationsText: String
         get() {
+            if (renderedAnnotations.isNotEmpty()) {
+                return renderedAnnotations.joinToString(separator = "\n", postfix = "\n")
+            }
             if (annotationClassIds.isEmpty()) return ""
             val container = extractionData.commonParent.getStrictParentOfType<KtNamedFunction>() ?: return ""
             return analyze(container) {
